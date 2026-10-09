@@ -46,7 +46,7 @@ try {
   await jefa.click("#enviar");
   check("pide el nombre si falta", await jefa.isVisible("text=Escribe tu nombre."));
 
-  await jefa.fill("#nombre", "Macarena");
+  await jefa.fill("#nombre", "Ana");
   await jefa.fill("#titulo", "No carga el PDF de cortesías");
   await jefa.fill("#detalle", "Al apretar Descargar no pasa nada.");
   await jefa.selectOption("#seccion", "tickets");
@@ -58,10 +58,10 @@ try {
   check("confirmación de envío con recordatorio", true);
   await jefa.waitForSelector(".item >> text=No carga el PDF de cortesías");
   check("aparece en la lista como Recibida", await jefa.isVisible(".item .estado-recibida"));
-  check("recuerda el nombre", (await jefa.inputValue("#nombre")) === "Macarena");
+  check("recuerda el nombre", (await jefa.inputValue("#nombre")) === "Ana");
 
   // Otra persona, prioridad baja, con texto malicioso
-  await jefa.fill("#nombre", "Camila");
+  await jefa.fill("#nombre", "Pedro");
   await jefa.fill("#titulo", '<img src=x onerror="alert(1)"> cambiar color del botón');
   await jefa.selectOption("#seccion", "otro");
   await jefa.click("label[for=p-baja]");
@@ -117,7 +117,7 @@ try {
 
   await jefa.click("button[data-filtro=todas]");
   await jefa.check("#solo-mias");
-  check("'Solo las mías' filtra por nombre (Camila)", (await jefa.locator(".item").count()) === 2);
+  check("'Solo las mías' filtra por nombre (Pedro)", (await jefa.locator(".item").count()) === 2);
 
   // Eliminar spam
   await yo.click("button[data-filtro=todas]");

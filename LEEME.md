@@ -26,6 +26,7 @@ Es un proyecto Firebase **separado** del de NAT.
 ## Pruebas (emulador local, nada de producción)
 
 ```bash
+export HERRAMIENTAS=<carpeta de herramientas de prueba>   # una vez por terminal
 pruebas/con_emulador.sh "node pruebas/reglas.test.mjs"   # 30 pruebas de reglas
 pruebas/con_emulador.sh "node pruebas/e2e.mjs"           # flujo completo en navegador (celular y escritorio)
 ```

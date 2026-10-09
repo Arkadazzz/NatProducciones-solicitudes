@@ -19,7 +19,7 @@ async function prueba(nombre, fn) {
   catch (e) { mal++; console.log("  ✘", nombre, "→", e.message); }
 }
 
-const base = { nombre: "Macarena", titulo: "Cambiar color", detalle: "El botón", seccion: "tickets", prioridad: "media" };
+const base = { nombre: "Ana", titulo: "Cambiar color", detalle: "El botón", seccion: "tickets", prioridad: "media" };
 const crear = (db, id, s = {}, t = {}) => update(ref(db), {
   [`solicitudes/${id}`]: { ...base, creada: serverTimestamp(), ...s },
   [`tablero/${id}`]: { nombre: base.nombre, titulo: base.titulo, seccion: base.seccion, prioridad: base.prioridad,

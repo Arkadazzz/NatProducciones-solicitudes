@@ -1,0 +1,42 @@
+{
+  "rules": {
+    "admins": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid"
+      }
+    },
+
+    "solicitudes": {
+      ".read": "auth != null && root.child('admins/' + auth.uid).val() === true",
+      "$id": {
+        ".write": "!data.exists() || (auth != null && root.child('admins/' + auth.uid).val() === true)",
+        ".validate": "newData.hasChildren(['nombre', 'titulo', 'detalle', 'seccion', 'prioridad', 'creada']) && newData.parent().parent().child('tablero/' + $id).exists()",
+        "nombre": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 60" },
+        "titulo": { ".validate": "newData.isString() && newData.val().length >= 1 && newData.val().length <= 120" },
+        "detalle": { ".validate": "newData.isString() && newData.val().length <= 3000" },
+        "seccion": { ".validate": "newData.isString() && newData.val().matches(/^(formulario|tickets|previred|contratos|pagos|finanzas|seguridad|base_datos|nat_pagos|otro)$/)" },
+        "prioridad": { ".validate": "newData.isString() && newData.val().matches(/^(alta|media|baja)$/)" },
+        "creada": { ".validate": "newData.isNumber() && (data.exists() ? newData.val() === data.val() : newData.val() === now)" },
+        "$otro": { ".validate": false }
+      }
+    },
+
+    "tablero": {
+      ".read": true,
+      "$id": {
+        ".write": "!data.exists() || (auth != null && root.child('admins/' + auth.uid).val() === true)",
+        ".validate": "newData.hasChildren(['nombre', 'titulo', 'seccion', 'prioridad', 'estado', 'respuesta', 'creada', 'actualizada']) && newData.parent().parent().child('solicitudes/' + $id).exists()",
+        "nombre": { ".validate": "newData.val() === newData.parent().parent().parent().child('solicitudes/' + $id + '/nombre').val()" },
+        "titulo": { ".validate": "newData.val() === newData.parent().parent().parent().child('solicitudes/' + $id + '/titulo').val()" },
+        "seccion": { ".validate": "newData.val() === newData.parent().parent().parent().child('solicitudes/' + $id + '/seccion').val()" },
+        "prioridad": { ".validate": "newData.val() === newData.parent().parent().parent().child('solicitudes/' + $id + '/prioridad').val()" },
+        "creada": { ".validate": "newData.val() === newData.parent().parent().parent().child('solicitudes/' + $id + '/creada').val()" },
+        "estado": { ".validate": "newData.isString() && (data.parent().exists() ? newData.val().matches(/^(recibida|en_proceso|terminada|descartada)$/) : newData.val() === 'recibida')" },
+        "respuesta": { ".validate": "newData.isString() && newData.val().length <= 1000 && (data.parent().exists() || newData.val() === '')" },
+        "actualizada": { ".validate": "newData.isNumber() && (newData.val() === now || newData.val() === data.val())" },
+        "terminada": { ".validate": "newData.isNumber() && data.parent().exists() && (newData.val() === now || newData.val() === data.val())" },
+        "$otro": { ".validate": false }
+      }
+    }
+  }
+}

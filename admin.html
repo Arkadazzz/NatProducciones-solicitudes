@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitudes NAT · Admin</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="favicon-32.png">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="contenedor">
+  <header>
+    <img src="NAT_Blanco.png" alt="NAT Producciones">
+    <div>
+      <h1>Solicitudes · Admin</h1>
+      <p id="quien">Solo para el administrador.</p>
+    </div>
+  </header>
+
+  <form id="login" class="tarjeta oculto">
+    <label for="correo">Correo</label>
+    <input id="correo" type="email" autocomplete="username" required>
+    <label for="clave">Contraseña</label>
+    <input id="clave" type="password" autocomplete="current-password" required>
+    <button type="submit" class="principal" id="entrar">Entrar</button>
+    <div id="mensaje-login" role="status"></div>
+  </form>
+
+  <section id="panel" class="oculto">
+    <div class="contador" id="contador"></div>
+    <div class="filtros" id="filtros">
+      <button type="button" data-filtro="activas" aria-pressed="true">Pendientes</button>
+      <button type="button" data-filtro="terminada" aria-pressed="false">Terminadas</button>
+      <button type="button" data-filtro="descartada" aria-pressed="false">Descartadas</button>
+      <button type="button" data-filtro="todas" aria-pressed="false">Todas</button>
+      <button type="button" id="salir" class="pequeno" style="margin-left:auto">Cerrar sesión</button>
+    </div>
+    <div class="lista" id="lista"></div>
+  </section>
+</div>
+
+<script type="module">
+  import { ref, get, update, remove, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+  import { signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+  import { db, auth, el, fecha, chipPrioridad, chipEstado, ordenar, ESTADOS, SECCIONES } from "./comun.js";
+
+  const $ = (id) => document.getElementById(id);
+  let filtro = "activas";
+  let tablero = {}, detalles = {};
+  const borradores = {};
+  let desuscribir = [];
+
+  $("login").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    $("entrar").disabled = true;
+    try {
+      await signInWithEmailAndPassword(auth, $("correo").value.trim(), $("clave").value);
+    } catch {
+      $("mensaje-login").replaceChildren(el("div", { class: "mensaje error" }, "Correo o contraseña incorrectos."));
+    } finally {
+      $("entrar").disabled = false;
+    }
+  });
+  $("salir").addEventListener("click", () => signOut(auth));
+
+  onAuthStateChanged(auth, async (user) => {
+    desuscribir.forEach((f) => f()); desuscribir = [];
+    $("panel").classList.add("oculto");
+    if (!user) { $("login").classList.remove("oculto"); $("quien").textContent = "Solo para el administrador."; return; }
+    const esAdmin = (await get(ref(db, "admins/" + user.uid)).catch(() => null))?.val() === true;
+    if (!esAdmin) {
+      $("login").classList.remove("oculto");
+      $("mensaje-login").replaceChildren(el("div", { class: "mensaje error" }, "Esta cuenta no es administradora."));
+      await signOut(auth);
+      return;
+    }
+    $("login").classList.add("oculto");
+    $("panel").classList.remove("oculto");
+    $("quien").textContent = user.email;
+    desuscribir.push(
+      onValue(ref(db, "tablero"), (s) => { tablero = s.val() || {}; pintar(); }),
+      onValue(ref(db, "solicitudes"), (s) => { detalles = s.val() || {}; pintar(); }));
+  });
+
+  $("filtros").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-filtro]");
+    if (!b) return;
+    filtro = b.dataset.filtro;
+    $("filtros").querySelectorAll("button[data-filtro]").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    pintar();
+  });
+
+  async function cambiarEstado(id, estado, boton) {
+    boton.disabled = true;
+    try {
+      await update(ref(db, "tablero/" + id), {
+        estado,
+        actualizada: serverTimestamp(),
+        terminada: estado === "terminada" ? serverTimestamp() : null
+      });
+    } catch (err) { alert("No se pudo guardar: " + err.message); boton.disabled = false; }
+  }
+
+  async function guardarRespuesta(id, texto, boton) {
+    boton.disabled = true;
+    try {
+      await update(ref(db, "tablero/" + id), { respuesta: texto.trim(), actualizada: serverTimestamp() });
+      delete borradores[id];
+      boton.textContent = "Guardada ✓";
+      setTimeout(() => { boton.textContent = "Guardar respuesta"; boton.disabled = false; }, 1500);
+    } catch (err) { alert("No se pudo guardar: " + err.message); boton.disabled = false; }
+  }
+
+  async function eliminar(id) {
+    if (!confirm("¿Eliminar esta solicitud para siempre? (útil para spam o duplicados)")) return;
+    try { await update(ref(db), { [`solicitudes/${id}`]: null, [`tablero/${id}`]: null }); }
+    catch (err) { alert("No se pudo eliminar: " + err.message); }
+  }
+
+  function botonesEstado(s) {
+    const opciones = {
+      recibida: [["en_proceso", "🔧 Empezar"], ["terminada", "✅ Terminar"], ["descartada", "✖️ Descartar"]],
+      en_proceso: [["terminada", "✅ Terminar"], ["recibida", "📥 Volver a recibida"], ["descartada", "✖️ Descartar"]],
+      terminada: [["en_proceso", "🔧 Reabrir"]],
+      descartada: [["recibida", "📥 Recuperar"]]
+    }[s.estado] || [];
+    return opciones.map(([estado, texto]) =>
+      el("button", { type: "button", class: "pequeno", onclick: (e) => cambiarEstado(s.id, estado, e.currentTarget) }, texto));
+  }
+
+  function pintar() {
+    const todas = Object.entries(tablero).map(([id, s]) => ({ id, ...s }));
+    const cuenta = (f) => todas.filter(f).length;
+    $("contador").replaceChildren(
+      el("span", {}, `🔴 Alta pendientes: ${cuenta((s) => s.prioridad === "alta" && (s.estado === "recibida" || s.estado === "en_proceso"))}`),
+      el("span", {}, `🔧 En proceso: ${cuenta((s) => s.estado === "en_proceso")}`),
+      el("span", {}, `📥 Recibidas: ${cuenta((s) => s.estado === "recibida")}`),
+      el("span", {}, `✅ Terminadas: ${cuenta((s) => s.estado === "terminada")}`));
+
+    const lista = ordenar(todas.filter((s) =>
+      filtro === "todas" ? true :
+      filtro === "activas" ? s.estado === "recibida" || s.estado === "en_proceso" :
+      s.estado === filtro));
+    if (!lista.length) return $("lista").replaceChildren(el("div", { class: "vacio" }, "Nada por aquí."));
+
+    $("lista").replaceChildren(...lista.map((s) => {
+      const det = detalles[s.id] || {};
+      const caja = el("textarea", { maxlength: "1000", placeholder: "Respuesta visible para todos (ej: listo en la v40, ¿me explicas más?)" });
+      caja.value = borradores[s.id] ?? s.respuesta ?? "";
+      caja.addEventListener("input", () => (borradores[s.id] = caja.value));
+      return el("div", { class: "item estado-" + s.estado },
+        el("div", { class: "chips" }, chipEstado(s.estado), chipPrioridad(s.prioridad)),
+        el("h3", {}, s.titulo),
+        el("div", { class: "meta" },
+          `${SECCIONES[s.seccion] || s.seccion} · ${s.nombre} · ${fecha(s.creada)}`,
+          s.terminada ? ` · terminada ${fecha(s.terminada)}` : ""),
+        det.detalle ? el("p", { class: "detalle" }, det.detalle) : null,
+        el("div", { class: "acciones" },
+          ...botonesEstado(s),
+          el("button", { type: "button", class: "pequeno", style: "margin-left:auto", onclick: () => eliminar(s.id) }, "🗑 Eliminar"),
+          caja,
+          el("button", { type: "button", class: "pequeno", onclick: (e) => guardarRespuesta(s.id, caja.value, e.currentTarget) }, "Guardar respuesta")));
+    }));
+  }
+</script>
+</body>
+</html>

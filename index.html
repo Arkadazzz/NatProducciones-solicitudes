@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Solicitudes NAT</title>
+  <meta name="robots" content="noindex, nofollow">
+  <link rel="icon" href="favicon-32.png">
+  <link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<div class="contenedor">
+  <header>
+    <img src="NAT_Blanco.png" alt="NAT Producciones">
+    <div>
+      <h1>Solicitudes de cambios</h1>
+      <p>Pide aquí cambios o arreglos en la plataforma.</p>
+    </div>
+  </header>
+
+  <form id="formulario" class="tarjeta" novalidate>
+    <label for="nombre">Tu nombre</label>
+    <input id="nombre" maxlength="60" autocomplete="name" required>
+
+    <label for="titulo">¿Qué necesitas? <span class="opcional">(en una línea)</span></label>
+    <input id="titulo" maxlength="120" placeholder="Ej: cambiar el color del botón Confirmar" required>
+
+    <label for="detalle">Más detalles <span class="opcional">(opcional)</span></label>
+    <textarea id="detalle" maxlength="3000" placeholder="Dónde está, qué pasa, cómo debería quedar..."></textarea>
+
+    <label for="seccion">¿En qué parte de la plataforma?</label>
+    <select id="seccion" required></select>
+
+    <label>Prioridad</label>
+    <div class="prioridades" id="prioridades"></div>
+    <div class="ayuda-prio" id="ayuda-prio">Elige una prioridad.</div>
+    <div class="aviso-alta oculto" id="aviso-alta">📞 <b>Prioridad alta:</b> además de enviarla aquí, llámame o escríbeme por WhatsApp.</div>
+
+    <button type="submit" class="principal" id="enviar">Enviar solicitud</button>
+    <div id="mensaje" role="status"></div>
+  </form>
+
+  <h2>Estado de las solicitudes</h2>
+  <div class="filtros" id="filtros">
+    <button type="button" data-filtro="activas" aria-pressed="true">Pendientes</button>
+    <button type="button" data-filtro="terminada" aria-pressed="false">Terminadas</button>
+    <button type="button" data-filtro="todas" aria-pressed="false">Todas</button>
+    <label class="solo-mias"><input type="checkbox" id="solo-mias"> Solo las mías</label>
+  </div>
+  <div class="lista" id="lista"><div class="vacio">Cargando…</div></div>
+</div>
+
+<script type="module">
+  import { ref, push, update, onValue, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+  import { db, el, fecha, chipPrioridad, chipEstado, ordenar, PRIORIDADES, SECCIONES } from "./comun.js";
+
+  const $ = (id) => document.getElementById(id);
+  const guardar = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+  const leer = (k) => { try { return localStorage.getItem(k) || ""; } catch { return ""; } };
+
+  // Formulario
+  $("seccion").append(el("option", { value: "" }, "Elegir…"),
+    ...Object.entries(SECCIONES).map(([v, t]) => el("option", { value: v }, t)));
+  for (const [v, p] of Object.entries(PRIORIDADES)) {
+    $("prioridades").append(
+      el("input", { type: "radio", name: "prioridad", id: "p-" + v, value: v }),
+      el("label", { for: "p-" + v, class: "p-" + v }, `${p.icono} ${p.nombre}`));
+  }
+  $("prioridades").addEventListener("change", (e) => {
+    $("ayuda-prio").textContent = PRIORIDADES[e.target.value].ayuda;
+    $("aviso-alta").classList.toggle("oculto", e.target.value !== "alta");
+  });
+  $("nombre").value = leer("solicitudes_nombre");
+  $("formulario").addEventListener("input", () => { if ($("mensaje").querySelector(".error")) mostrar(""); });
+
+  function mostrar(texto, tipo) {
+    $("mensaje").replaceChildren(texto ? el("div", { class: "mensaje " + tipo }, texto) : "");
+  }
+
+  $("formulario").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const nombre = $("nombre").value.trim();
+    const titulo = $("titulo").value.trim();
+    const detalle = $("detalle").value.trim();
+    const seccion = $("seccion").value;
+    const prioridad = document.querySelector('input[name="prioridad"]:checked')?.value;
+    if (!nombre) return mostrar("Escribe tu nombre.", "error");
+    if (!titulo) return mostrar("Escribe qué necesitas.", "error");
+    if (!seccion) return mostrar("Elige en qué parte de la plataforma.", "error");
+    if (!prioridad) return mostrar("Elige una prioridad.", "error");
+
+    $("enviar").disabled = true;
+    $("enviar").textContent = "Enviando…";
+    try {
+      const id = push(ref(db, "solicitudes")).key;
+      const ahora = serverTimestamp();
+      await update(ref(db), {
+        [`solicitudes/${id}`]: { nombre, titulo, detalle, seccion, prioridad, creada: ahora },
+        [`tablero/${id}`]: { nombre, titulo, seccion, prioridad, estado: "recibida", respuesta: "", creada: ahora, actualizada: ahora }
+      });
+      guardar("solicitudes_nombre", nombre);
+      $("titulo").value = ""; $("detalle").value = ""; $("seccion").value = "";
+      document.querySelectorAll('input[name="prioridad"]').forEach((r) => (r.checked = false));
+      $("ayuda-prio").textContent = "Elige una prioridad.";
+      $("aviso-alta").classList.add("oculto");
+      mostrar(prioridad === "alta"
+        ? "✅ Solicitud enviada. Como es de prioridad alta, recuerda llamarme o escribirme por WhatsApp."
+        : "✅ Solicitud enviada. Puedes ver cómo va en la lista de abajo.", "ok");
+    } catch (err) {
+      console.error(err);
+      mostrar("No se pudo enviar. Revisa tu conexión e inténtalo de nuevo.", "error");
+    } finally {
+      $("enviar").disabled = false;
+      $("enviar").textContent = "Enviar solicitud";
+    }
+  });
+
+  // Lista en vivo
+  let filtro = "activas";
+  let datos = [];
+  $("solo-mias").checked = leer("solicitudes_solo_mias") === "1";
+
+  $("filtros").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-filtro]");
+    if (!b) return;
+    filtro = b.dataset.filtro;
+    $("filtros").querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", x === b));
+    pintar();
+  });
+  $("solo-mias").addEventListener("change", () => { guardar("solicitudes_solo_mias", $("solo-mias").checked ? "1" : "0"); pintar(); });
+
+  function pintar() {
+    const yo = leer("solicitudes_nombre").trim().toLowerCase();
+    let lista = datos.filter((s) =>
+      filtro === "todas" ? true :
+      filtro === "terminada" ? s.estado === "terminada" :
+      s.estado === "recibida" || s.estado === "en_proceso");
+    if ($("solo-mias").checked && yo) lista = lista.filter((s) => s.nombre.trim().toLowerCase() === yo);
+    ordenar(lista);
+    if (!lista.length) return $("lista").replaceChildren(el("div", { class: "vacio" },
+      filtro === "terminada" ? "Todavía no hay solicitudes terminadas." : "No hay solicitudes pendientes. 🎉"));
+    $("lista").replaceChildren(...lista.map((s) => el("div", { class: "item estado-" + s.estado },
+      el("div", { class: "chips" }, chipEstado(s.estado), chipPrioridad(s.prioridad)),
+      el("h3", {}, s.titulo),
+      el("div", { class: "meta" },
+        `${SECCIONES[s.seccion] || s.seccion} · pedida por ${s.nombre} · ${fecha(s.creada)}`,
+        s.estado === "terminada" && s.terminada ? ` · terminada ${fecha(s.terminada)}` : ""),
+      s.respuesta ? el("div", { class: "respuesta" }, el("b", {}, "Respuesta"), s.respuesta) : null)));
+  }
+
+  onValue(ref(db, "tablero"), (snap) => {
+    datos = Object.entries(snap.val() || {}).map(([id, s]) => ({ id, ...s }));
+    pintar();
+  }, (err) => {
+    console.error(err);
+    $("lista").replaceChildren(el("div", { class: "vacio" }, "No se pudo cargar la lista."));
+  });
+</script>
+</body>
+</html>
